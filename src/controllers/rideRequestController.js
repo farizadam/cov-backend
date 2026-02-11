@@ -4,7 +4,12 @@ const User = require("../models/User");
 const Ride = require("../models/Ride");
 const Notification = require("../models/Notification");
 const NotificationService = require("../services/notificationService");
-const { safeGet, safeSetex, safeDel, safeKeys } = require("../config/redisClient");
+const {
+  safeGet,
+  safeSetex,
+  safeDel,
+  safeKeys,
+} = require("../config/redisClient");
 
 // Create a new ride request (passenger)
 exports.createRequest = async (req, res, next) => {
@@ -182,7 +187,10 @@ exports.getMyRequests = async (req, res, next) => {
     const requests = await RideRequest.find(query)
       .populate("airport")
       .populate("passenger", "first_name last_name phone avatar_url")
-      .populate("matched_driver", "first_name last_name phone rating avatar_url")
+      .populate(
+        "matched_driver",
+        "first_name last_name phone rating avatar_url",
+      )
       .populate("matched_ride")
       .populate("offers.driver", "first_name last_name phone rating avatar_url")
       .sort({ created_at: -1 })
@@ -391,7 +399,10 @@ exports.getMyOffers = async (req, res, next) => {
     const requests = await RideRequest.find(query)
       .populate("airport")
       .populate("passenger", "first_name last_name phone rating avatar_url")
-      .populate("matched_driver", "first_name last_name phone rating avatar_url")
+      .populate(
+        "matched_driver",
+        "first_name last_name phone rating avatar_url",
+      )
       .populate("offers.driver", "first_name last_name phone rating avatar_url")
       .sort({ created_at: -1 })
       .skip((page - 1) * limit)
@@ -439,7 +450,10 @@ exports.getRequest = async (req, res, next) => {
     const request = await RideRequest.findById(req.params.id)
       .populate("airport")
       .populate("passenger", "first_name last_name phone rating avatar_url")
-      .populate("matched_driver", "first_name last_name phone rating avatar_url")
+      .populate(
+        "matched_driver",
+        "first_name last_name phone rating avatar_url",
+      )
       .populate("matched_ride")
       .populate("offers.driver", "first_name last_name phone rating avatar_url")
       .populate("offers.ride");
@@ -510,16 +524,22 @@ exports.makeOffer = async (req, res, next) => {
 
     // Notify passenger about the new offer (cache invalidation handled by NotificationService)
     try {
-      await NotificationService.notifyOfferReceived(request.passenger.toString(), {
-        request_id: request._id.toString(),
-        offer_id: newOffer._id.toString(),
-        driver_id: req.user.id,
-        driver_name: `${driverInfo.first_name} ${driverInfo.last_name}`,
-        price_per_seat: price_per_seat,
-        message: message,
-        ride_id: ride_id,
-      });
-      console.log("[makeOffer] Notification sent to passenger:", request.passenger);
+      await NotificationService.notifyOfferReceived(
+        request.passenger.toString(),
+        {
+          request_id: request._id.toString(),
+          offer_id: newOffer._id.toString(),
+          driver_id: req.user.id,
+          driver_name: `${driverInfo.first_name} ${driverInfo.last_name}`,
+          price_per_seat: price_per_seat,
+          message: message,
+          ride_id: ride_id,
+        },
+      );
+      console.log(
+        "[makeOffer] Notification sent to passenger:",
+        request.passenger,
+      );
     } catch (notifError) {
       console.error("[makeOffer] Failed to send notification:", notifError);
       // Don't fail the offer if notification fails
@@ -976,6 +996,30 @@ exports.acceptOfferWithPayment = async (req, res, next) => {
       await safeDel(`notifications:${offer.driver.toString()}`);
     }
 
+    // Send "request booked" notification to passenger
+    try {
+      const populatedRequest = await RideRequest.findById(request._id)
+        .populate("matched_driver", "first_name last_name")
+        .populate("matched_ride");
+
+      await NotificationService.notifyRequestBooked(request.passenger, {
+        request_id: request._id,
+        ride_id: offer.ride,
+        driver_name:
+          `${populatedRequest.matched_driver?.first_name || ""} ${populatedRequest.matched_driver?.last_name || ""}`.trim(),
+        price_total: totalAmount,
+        seats: request.seats_needed,
+        pickup_location: request.pickup_location?.address || "",
+        dropoff_location: request.dropoff_location?.address || "",
+      });
+    } catch (notificationError) {
+      console.error(
+        "Failed to send request booked notification:",
+        notificationError,
+      );
+      // Don't fail the whole request if notification fails
+    }
+
     // Notify rejected drivers
     for (const o of request.offers) {
       if (o._id.toString() !== offer_id && o.driver) {
@@ -1047,18 +1091,22 @@ exports.rejectOffer = async (req, res, next) => {
 
     // Notify the driver that their offer was rejected
     if (offer.driver) {
-      await Notification.create({
-        user_id: offer.driver,
-        type: "offer_rejected",
-        payload: {
+      try {
+        const passenger = await User.findById(request.passenger).select(
+          "first_name last_name",
+        );
+        await NotificationService.notifyOfferRejected(offer.driver, {
           request_id: request._id,
-          passenger_id: request.passenger,
+          passenger_name: `${passenger.first_name} ${passenger.last_name}`,
           ride_id: offer.ride,
-          message: "Your offer was rejected by the passenger.",
-        },
-      });
-      // Invalidate driver's notification cache
-      await safeDel(`notifications:${offer.driver.toString()}`);
+        });
+      } catch (notifError) {
+        console.error(
+          "Failed to send offer rejected notification:",
+          notifError,
+        );
+        // Don't fail the rejection if notification fails
+      }
     }
 
     // Invalidate relevant caches

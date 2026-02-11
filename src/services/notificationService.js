@@ -25,6 +25,9 @@ class NotificationService {
     RATE_DRIVER: "rate_driver",
     RATE_PASSENGER: "rate_passenger",
     OFFER_RECEIVED: "offer_received",
+    OFFER_REJECTED: "offer_rejected",
+    REQUEST_BOOKED: "request_booked",
+    RATING_RECEIVED: "rating_received",
   };
 
   /**
@@ -80,7 +83,7 @@ class NotificationService {
   static async notifyBookingCancelled(
     userId,
     bookingData,
-    isCancelledByPassenger
+    isCancelledByPassenger,
   ) {
     return await this.createAndInvalidateCache(userId, {
       user_id: userId,
@@ -208,6 +211,62 @@ class NotificationService {
         price_per_seat: offerData.price_per_seat,
         message: offerData.message,
         ride_id: offerData.ride_id,
+      },
+    });
+  }
+
+  /**
+   * Send request booked notification to passenger
+   * Called when a request is successfully converted to a booking with payment
+   */
+  static async notifyRequestBooked(passengerId, requestData) {
+    return await this.createAndInvalidateCache(passengerId, {
+      user_id: passengerId,
+      type: this.TYPES.REQUEST_BOOKED,
+      payload: {
+        request_id: requestData.request_id,
+        ride_id: requestData.ride_id,
+        driver_name: requestData.driver_name,
+        price_total: requestData.price_total,
+        seats: requestData.seats,
+        pickup_location: requestData.pickup_location,
+        dropoff_location: requestData.dropoff_location,
+      },
+    });
+  }
+
+  /**
+   * Send offer rejected notification to driver
+   * Called when a passenger rejects a driver's offer
+   */
+  static async notifyOfferRejected(driverId, offerData) {
+    return await this.createAndInvalidateCache(driverId, {
+      user_id: driverId,
+      type: this.TYPES.OFFER_REJECTED,
+      payload: {
+        request_id: offerData.request_id,
+        passenger_name: offerData.passenger_name,
+        ride_id: offerData.ride_id,
+      },
+    });
+  }
+
+  /**
+   * Send rating received notification
+   * Called when someone receives a new rating
+   */
+  static async notifyRatingReceived(userId, ratingData) {
+    return await this.createAndInvalidateCache(userId, {
+      user_id: userId,
+      type: this.TYPES.RATING_RECEIVED,
+      payload: {
+        rating_id: ratingData.rating_id,
+        stars: ratingData.stars,
+        comment: ratingData.comment,
+        from_user_name: ratingData.from_user_name,
+        booking_id: ratingData.booking_id,
+        ride_id: ratingData.ride_id,
+        role_rated: ratingData.role_rated, // 'driver' or 'passenger'
       },
     });
   }

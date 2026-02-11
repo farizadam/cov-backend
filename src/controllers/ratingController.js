@@ -2,6 +2,7 @@ const Rating = require("../models/Rating");
 const User = require("../models/User");
 const Booking = require("../models/Booking");
 const Ride = require("../models/Ride");
+const NotificationService = require("../services/notificationService");
 
 // 30 minutes buffer after ride departure before ratings are allowed
 const RIDE_COMPLETION_BUFFER_MS = 30 * 60 * 1000;
@@ -51,8 +52,10 @@ class RatingController {
       // Check if ride time has passed (departure + 30 minutes)
       if (ride.departure_datetime) {
         const departureTime = new Date(ride.departure_datetime);
-        const completionTime = new Date(departureTime.getTime() + RIDE_COMPLETION_BUFFER_MS);
-        
+        const completionTime = new Date(
+          departureTime.getTime() + RIDE_COMPLETION_BUFFER_MS,
+        );
+
         if (now < completionTime) {
           return res.status(400).json({
             success: false,
@@ -112,6 +115,28 @@ class RatingController {
       // Update the target user's average rating
       await RatingController.updateUserRating(toUserId);
 
+      // Send notification to the user who received the rating
+      try {
+        const fromUser = await User.findById(fromUserId).select(
+          "first_name last_name",
+        );
+        await NotificationService.notifyRatingReceived(toUserId, {
+          rating_id: rating._id,
+          stars: stars,
+          comment: comment || "",
+          from_user_name: `${fromUser.first_name} ${fromUser.last_name}`,
+          booking_id: booking_id,
+          ride_id: ride._id,
+          role_rated: ratingType, // 'driver' or 'passenger'
+        });
+      } catch (notifError) {
+        console.error(
+          "Failed to send rating received notification:",
+          notifError,
+        );
+        // Don't fail the rating if notification fails
+      }
+
       // Populate the rating for response
       const populatedRating = await Rating.findById(rating._id)
         .populate("from_user", "first_name last_name avatar_url")
@@ -138,7 +163,7 @@ class RatingController {
    */
   static async updateUserRating(userId) {
     const ratings = await Rating.find({ to_user: userId });
-    
+
     if (ratings.length === 0) {
       await User.findByIdAndUpdate(userId, {
         rating: 0,
@@ -177,7 +202,9 @@ class RatingController {
       const total = await Rating.countDocuments({ to_user: userId });
 
       // Get user's current rating stats
-      const user = await User.findById(userId).select("rating rating_count first_name last_name");
+      const user = await User.findById(userId).select(
+        "rating rating_count first_name last_name",
+      );
 
       res.json({
         success: true,
@@ -281,8 +308,10 @@ class RatingController {
       // Check if ride time has passed (departure + 30 minutes)
       if (ride.departure_datetime) {
         const departureTime = new Date(ride.departure_datetime);
-        const completionTime = new Date(departureTime.getTime() + RIDE_COMPLETION_BUFFER_MS);
-        
+        const completionTime = new Date(
+          departureTime.getTime() + RIDE_COMPLETION_BUFFER_MS,
+        );
+
         if (now < completionTime) {
           return res.json({
             success: true,
@@ -311,7 +340,8 @@ class RatingController {
 
       // Determine who the user would rate
       const toUserId = userId === driverId ? passengerId : driverId;
-      const ratingType = userId === driverId ? "driver_to_passenger" : "passenger_to_driver";
+      const ratingType =
+        userId === driverId ? "driver_to_passenger" : "passenger_to_driver";
 
       // Check if already rated
       const existingRating = await Rating.findOne({
@@ -331,8 +361,9 @@ class RatingController {
       }
 
       // Get target user info
-      const targetUser = await User.findById(toUserId)
-        .select("first_name last_name avatar_url rating rating_count");
+      const targetUser = await User.findById(toUserId).select(
+        "first_name last_name avatar_url rating rating_count",
+      );
 
       res.json({
         success: true,
@@ -383,7 +414,10 @@ class RatingController {
         .populate("ride_id")
         .populate({
           path: "ride_id",
-          populate: { path: "driver_id", select: "first_name last_name avatar_url rating rating_count" },
+          populate: {
+            path: "driver_id",
+            select: "first_name last_name avatar_url rating rating_count",
+          },
         });
 
       // Get bookings where user is driver
@@ -391,18 +425,25 @@ class RatingController {
         ride_id: { $in: driverRideIds },
         status: "accepted",
       })
-        .populate("passenger_id", "first_name last_name avatar_url rating rating_count")
+        .populate(
+          "passenger_id",
+          "first_name last_name avatar_url rating rating_count",
+        )
         .populate("ride_id");
 
       // Get existing ratings by this user
       const existingRatings = await Rating.find({ from_user: userId });
-      const ratedBookingIds = new Set(existingRatings.map((r) => r.booking_id.toString()));
+      const ratedBookingIds = new Set(
+        existingRatings.map((r) => r.booking_id.toString()),
+      );
 
       // Helper function to check if ride is completed (departure time + 30 min has passed)
       const isRideCompleted = (ride) => {
         if (!ride || !ride.departure_datetime) return false;
         const departureTime = new Date(ride.departure_datetime);
-        const completionTime = new Date(departureTime.getTime() + RIDE_COMPLETION_BUFFER_MS);
+        const completionTime = new Date(
+          departureTime.getTime() + RIDE_COMPLETION_BUFFER_MS,
+        );
         return now >= completionTime;
       };
 
@@ -475,7 +516,9 @@ class RatingController {
     try {
       const { userId } = req.params;
 
-      const user = await User.findById(userId).select("rating rating_count first_name last_name");
+      const user = await User.findById(userId).select(
+        "rating rating_count first_name last_name",
+      );
 
       if (!user) {
         return res.status(404).json({
