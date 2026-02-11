@@ -1,32 +1,29 @@
-const nodemailer = require("nodemailer");
+const SibApiV3Sdk = require('sib-api-v3-sdk');
 
-// Configure via env: SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS, FROM_EMAIL
-const transporter = nodemailer.createTransport({
-  host: process.env.SMTP_HOST,
-  port: process.env.SMTP_PORT ? parseInt(process.env.SMTP_PORT, 10) : 587,
-  secure: process.env.SMTP_SECURE === "true",
-  auth: process.env.SMTP_USER
-    ? { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS }
-    : undefined,
-});
+// Initialize the Brevo Client
+const defaultClient = SibApiV3Sdk.ApiClient.instance;
+const apiKey = defaultClient.authentications['api-key'];
+apiKey.apiKey = process.env.BREVO_API_KEY; // Put your real key in Railway Variables
 
-async function sendEmail({ to, subject, text, html }) {
-  const from = process.env.FROM_EMAIL || process.env.SMTP_USER;
-  if (!from) throw new Error("FROM_EMAIL or SMTP_USER must be configured");
-  return transporter.sendMail({ from, to, subject, text, html });
+const apiInstance = new SibApiV3Sdk.TransactionalEmailsApi();
+
+async function sendEmail({ to, subject, html, text }) {
+  const sendSmtpEmail = new SibApiV3Sdk.SendSmtpEmail();
+
+  sendSmtpEmail.subject = subject;
+  sendSmtpEmail.htmlContent = html || text;
+  sendSmtpEmail.sender = { "name": "CovoitAir", "email": process.env.FROM_EMAIL || "said2000bm@gmail.com" };
+  sendSmtpEmail.to = [{ "email": to }];
+
+  try {
+    const data = await apiInstance.sendTransacEmail(sendSmtpEmail);
+    console.log('✅ Email sent successfully via Brevo API. ID:', data.messageId);
+    return data;
+  } catch (error) {
+    // Log the error but don't let it crash the backend
+    console.error('❌ Brevo API Error:', error.response?.body || error.message);
+    return null;
+  }
 }
 
 module.exports = { sendEmail };
-
-// Improve reliability with connection pooling and sensible timeouts
-try {
-  transporter.pool = true;
-  transporter.verify().catch((err) => {
-    console.warn(
-      "Mailer verify failed:",
-      err && err.message ? err.message : err,
-    );
-  });
-} catch (e) {
-  // ignore
-}
