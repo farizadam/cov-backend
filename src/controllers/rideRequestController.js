@@ -663,39 +663,44 @@ exports.acceptOffer = async (req, res, next) => {
     ]);
 
     // Notify passenger (request owner) that their request was accepted
-    await Notification.create({
-      user_id: request.passenger,
-      type: "request_accepted",
-      payload: {
+    try {
+      const driver = await User.findById(offer.driver).select(
+        "first_name last_name",
+      );
+      await NotificationService.notifyRequestAccepted(request.passenger, {
         request_id: request._id,
         driver_id: offer.driver,
+        driver_name: `${driver.first_name} ${driver.last_name}`,
         ride_id: offer.ride,
-        message: "Your ride request has been accepted by a driver.",
-      },
-    });
-    // Invalidate passenger's notification cache
-    await safeDel(`notifications:${request.passenger.toString()}`);
+      });
+    } catch (notifError) {
+      console.error(
+        "Failed to send request accepted notification:",
+        notifError,
+      );
+      // Don't fail if notification fails
+    }
 
     // Notify the accepted driver
     if (offer && offer.driver) {
-      const driverNotif = await Notification.create({
-        user_id: offer.driver,
-        type: "offer_accepted",
-        payload: {
+      try {
+        const passenger = await User.findById(request.passenger).select(
+          "first_name last_name",
+        );
+        await NotificationService.notifyOfferAccepted(offer.driver, {
           request_id: request._id,
           passenger_id: request.passenger,
+          passenger_name: `${passenger.first_name} ${passenger.last_name}`,
           ride_id: offer.ride,
-          message: "Your offer has been accepted by the passenger.",
-        },
-      });
-      // Invalidate driver's notification cache
-      await safeDel(`notifications:${offer.driver.toString()}`);
-      console.log("[DEBUG] Created offer_accepted notification for driver:", {
-        notif_id: driverNotif._id,
-        user_id: driverNotif.user_id,
-        request_id: request._id,
-        offer_id: offer._id,
-      });
+        });
+        console.log("[DEBUG] Sent offer_accepted notification to driver");
+      } catch (notifError) {
+        console.error(
+          "Failed to send offer accepted notification:",
+          notifError,
+        );
+        // Don't fail if notification fails
+      }
     } else {
       console.log(
         "[DEBUG] Skipped driver notification: offer or offer.driver missing",
@@ -705,18 +710,22 @@ exports.acceptOffer = async (req, res, next) => {
     // Notify rejected drivers
     for (const o of request.offers) {
       if (o._id.toString() !== offer_id && o.driver) {
-        await Notification.create({
-          user_id: o.driver,
-          type: "offer_rejected",
-          payload: {
+        try {
+          const passenger = await User.findById(request.passenger).select(
+            "first_name last_name",
+          );
+          await NotificationService.notifyOfferRejected(o.driver, {
             request_id: request._id,
-            passenger_id: request.passenger,
+            passenger_name: `${passenger.first_name} ${passenger.last_name}`,
             ride_id: o.ride,
-            message: "Your offer was not accepted.",
-          },
-        });
-        // Invalidate rejected driver's notification cache
-        await safeDel(`notifications:${o.driver.toString()}`);
+          });
+        } catch (notifError) {
+          console.error(
+            "Failed to send offer rejected notification:",
+            notifError,
+          );
+          // Continue with other notifications
+        }
       }
     }
 
@@ -968,32 +977,42 @@ exports.acceptOfferWithPayment = async (req, res, next) => {
     ]);
 
     // Notifications
-    await Notification.create({
-      user_id: request.passenger,
-      type: "request_accepted",
-      payload: {
+    try {
+      const driver = await User.findById(offer.driver).select(
+        "first_name last_name",
+      );
+      await NotificationService.notifyRequestAccepted(request.passenger, {
         request_id: request._id,
         driver_id: offer.driver,
+        driver_name: `${driver.first_name} ${driver.last_name}`,
         ride_id: offer.ride,
-        message: "Your ride request has been accepted and paid.",
-      },
-    });
-    // Invalidate passenger's notification cache
-    await safeDel(`notifications:${request.passenger.toString()}`);
+      });
+    } catch (notifError) {
+      console.error(
+        "Failed to send request accepted notification:",
+        notifError,
+      );
+      // Don't fail if notification fails
+    }
 
     if (offer && offer.driver) {
-      await Notification.create({
-        user_id: offer.driver,
-        type: "offer_accepted",
-        payload: {
+      try {
+        const passenger = await User.findById(request.passenger).select(
+          "first_name last_name",
+        );
+        await NotificationService.notifyOfferAccepted(offer.driver, {
           request_id: request._id,
           passenger_id: request.passenger,
+          passenger_name: `${passenger.first_name} ${passenger.last_name}`,
           ride_id: offer.ride,
-          message: "Your offer has been accepted and paid by the passenger.",
-        },
-      });
-      // Invalidate driver's notification cache
-      await safeDel(`notifications:${offer.driver.toString()}`);
+        });
+      } catch (notifError) {
+        console.error(
+          "Failed to send offer accepted notification:",
+          notifError,
+        );
+        // Don't fail if notification fails
+      }
     }
 
     // Send "request booked" notification to passenger
@@ -1023,16 +1042,22 @@ exports.acceptOfferWithPayment = async (req, res, next) => {
     // Notify rejected drivers
     for (const o of request.offers) {
       if (o._id.toString() !== offer_id && o.driver) {
-        await Notification.create({
-          user_id: o.driver,
-          type: "offer_rejected",
-          payload: {
+        try {
+          const passenger = await User.findById(request.passenger).select(
+            "first_name last_name",
+          );
+          await NotificationService.notifyOfferRejected(o.driver, {
             request_id: request._id,
-            message: "Your offer was not accepted.",
-          },
-        });
-        // Invalidate rejected driver's notification cache
-        await safeDel(`notifications:${o.driver.toString()}`);
+            passenger_name: `${passenger.first_name} ${passenger.last_name}`,
+            ride_id: o.ride,
+          });
+        } catch (notifError) {
+          console.error(
+            "Failed to send offer rejected notification:",
+            notifError,
+          );
+          // Continue with other notifications
+        }
       }
     }
 

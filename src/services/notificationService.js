@@ -25,7 +25,9 @@ class NotificationService {
     RATE_DRIVER: "rate_driver",
     RATE_PASSENGER: "rate_passenger",
     OFFER_RECEIVED: "offer_received",
+    OFFER_ACCEPTED: "offer_accepted",
     OFFER_REJECTED: "offer_rejected",
+    REQUEST_ACCEPTED: "request_accepted",
     REQUEST_BOOKED: "request_booked",
     RATING_RECEIVED: "rating_received",
   };
@@ -267,6 +269,40 @@ class NotificationService {
         booking_id: ratingData.booking_id,
         ride_id: ratingData.ride_id,
         role_rated: ratingData.role_rated, // 'driver' or 'passenger'
+      },
+    });
+  }
+
+  /**
+   * Send request accepted notification to passenger
+   * Called when a driver accepts a passenger's ride request
+   */
+  static async notifyRequestAccepted(passengerId, requestData) {
+    return await this.createAndInvalidateCache(passengerId, {
+      user_id: passengerId,
+      type: "request_accepted",
+      payload: {
+        request_id: requestData.request_id,
+        driver_id: requestData.driver_id,
+        driver_name: requestData.driver_name,
+        ride_id: requestData.ride_id,
+      },
+    });
+  }
+
+  /**
+   * Send offer accepted notification to driver
+   * Called when a passenger accepts a driver's offer
+   */
+  static async notifyOfferAccepted(driverId, offerData) {
+    return await this.createAndInvalidateCache(driverId, {
+      user_id: driverId,
+      type: "offer_accepted",
+      payload: {
+        request_id: offerData.request_id,
+        passenger_id: offerData.passenger_id,
+        passenger_name: offerData.passenger_name,
+        ride_id: offerData.ride_id,
       },
     });
   }
