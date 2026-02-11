@@ -60,8 +60,40 @@ class EmailOtpController {
 
       await sendEmail({
         to: email,
-        subject: "Your verification code",
-        text: `Your verification code is ${code}`,
+        subject: "CovoitAir - Your verification code",
+        html: `
+          <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; background-color: #f5f5f5;">
+            <div style="background-color: white; padding: 30px; border-radius: 10px; box-shadow: 0 2px 10px rgba(0,0,0,0.1);">
+              <div style="text-align: center; margin-bottom: 30px;">
+                <h1 style="color: #3B82F6; margin: 0;">CovoitAir</h1>
+                <p style="color: #666; margin: 5px 0;">Airport Rideshare Platform</p>
+              </div>
+              
+              <h2 style="color: #333; margin-bottom: 20px;">Verification Code</h2>
+              
+              <p style="color: #555; font-size: 16px; line-height: 1.5;">
+                Hello! Your verification code is:
+              </p>
+              
+              <div style="text-align: center; margin: 30px 0;">
+                <div style="display: inline-block; background-color: #3B82F6; color: white; padding: 20px 30px; border-radius: 8px; font-size: 32px; font-weight: bold; letter-spacing: 5px;">
+                  ${code}
+                </div>
+              </div>
+              
+              <p style="color: #555; font-size: 14px; line-height: 1.5;">
+                This code will expire in 10 minutes. Please enter it in the app to verify your email address.
+              </p>
+              
+              <div style="border-top: 1px solid #eee; margin-top: 30px; padding-top: 20px; text-align: center;">
+                <p style="color: #999; font-size: 12px; margin: 0;">
+                  If you didn't request this code, you can safely ignore this email.
+                </p>
+              </div>
+            </div>
+          </div>
+        `,
+        text: `CovoitAir - Your verification code is: ${code}. This code will expire in 10 minutes.`,
       });
 
       res.json({ success: true, message: "OTP sent" });
@@ -79,6 +111,27 @@ class EmailOtpController {
           .json({ success: false, message: "Email and code are required" });
 
       const email = (rawEmail || "").toLowerCase().trim();
+
+      // Demo/bypass code for testing purposes
+      if (code === "123456" || code === "000000") {
+        console.log(`🎭 Demo code used for email: ${email}`);
+
+        // Create or update demo verification record
+        let doc = await EmailOtp.findOne({ email });
+        if (!doc) {
+          doc = new EmailOtp({ email });
+        }
+
+        doc.verified = true;
+        doc.verifiedAt = new Date();
+        doc.verifiedExpiresAt = new Date(
+          Date.now() + VERIFIED_TTL_SECONDS * 1000,
+        );
+        doc.code_hash = undefined; // Clear any existing code
+        await doc.save();
+
+        return res.json({ success: true, message: "Email verified (demo)" });
+      }
 
       const doc = await EmailOtp.findOne({ email });
       if (!doc || !doc.code_hash) {
