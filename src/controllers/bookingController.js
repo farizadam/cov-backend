@@ -16,7 +16,8 @@ class BookingController {
     try {
       const { rideId } = req.params;
       const passengerId = req.user.id;
-      const { seats, pickup_location, dropoff_location, luggage_count } = req.validatedBody || req.body; // Fallback to req.body if validatedBody doesn't have them yet
+      const { seats, pickup_location, dropoff_location, luggage_count } =
+        req.validatedBody || req.body; // Fallback to req.body if validatedBody doesn't have them yet
 
       // Get ride details
       const ride = await Ride.findById(rideId);
@@ -114,7 +115,7 @@ class BookingController {
           seats,
           pickup_location,
           dropoff_location,
-        }
+        },
       );
       // Note: Cache invalidation is now handled automatically by NotificationService
 
@@ -145,7 +146,10 @@ class BookingController {
         .populate({
           path: "ride_id",
           populate: [
-            { path: "driver_id", select: "first_name last_name phone avatar_url rating" },
+            {
+              path: "driver_id",
+              select: "first_name last_name phone avatar_url rating",
+            },
             { path: "airport_id", select: "name iata_code" },
           ],
         })
@@ -206,14 +210,15 @@ class BookingController {
       const userId = req.user.id;
       const { status, seats } = req.validatedBody;
 
-      console.log(`[BookingController] updateBooking: ID=${id}, User=${userId}, Body=${JSON.stringify(req.validatedBody)}`);
+      console.log(
+        `[BookingController] updateBooking: ID=${id}, User=${userId}, Body=${JSON.stringify(req.validatedBody)}`,
+      );
 
       // Get booking details
-      const booking = await Booking.findById(id)
-        .populate({
-          path: "ride_id",
-          populate: { path: "driver_id airport_id" }, // Populate driver_id here
-        });
+      const booking = await Booking.findById(id).populate({
+        path: "ride_id",
+        populate: { path: "driver_id airport_id" }, // Populate driver_id here
+      });
 
       if (!booking) {
         console.warn(`[BookingController] Booking not found for ID: ${id}`);
@@ -222,10 +227,12 @@ class BookingController {
           message: "Booking not found",
         });
       }
-      
+
       const ride = booking.ride_id;
       if (!ride) {
-        console.error(`[BookingController] Ride not found for booking ID: ${id}`);
+        console.error(
+          `[BookingController] Ride not found for booking ID: ${id}`,
+        );
         return res.status(404).json({
           success: false,
           message: "Associated ride not found",
@@ -235,11 +242,15 @@ class BookingController {
       const isDriver = ride.driver_id._id.toString() === userId;
       const isPassenger = booking.passenger_id.toString() === userId;
 
-      console.log(`[BookingController] isDriver=${isDriver}, isPassenger=${isPassenger}`);
+      console.log(
+        `[BookingController] isDriver=${isDriver}, isPassenger=${isPassenger}`,
+      );
 
       // Validate permissions
       if (!isDriver && !isPassenger) {
-        console.warn(`[BookingController] Permission denied for user ${userId} on booking ${id}`);
+        console.warn(
+          `[BookingController] Permission denied for user ${userId} on booking ${id}`,
+        );
         return res.status(403).json({
           success: false,
           message: "You don't have permission to modify this booking",
@@ -250,9 +261,13 @@ class BookingController {
 
       // Logic for updating seats
       if (seats && seats !== booking.seats) {
-        console.log(`[BookingController] Attempting to change seats from ${booking.seats} to ${seats}`);
+        console.log(
+          `[BookingController] Attempting to change seats from ${booking.seats} to ${seats}`,
+        );
         if (!isPassenger) {
-          console.warn(`[BookingController] Driver ${userId} tried to change seats for booking ${id}`);
+          console.warn(
+            `[BookingController] Driver ${userId} tried to change seats for booking ${id}`,
+          );
           return res.status(403).json({
             success: false,
             message: "Only the passenger can change the number of seats.",
@@ -260,7 +275,9 @@ class BookingController {
         }
 
         if (booking.status !== "pending") {
-          console.warn(`[BookingController] Cannot change seats for non-pending booking ${id} (status: ${booking.status})`);
+          console.warn(
+            `[BookingController] Cannot change seats for non-pending booking ${id} (status: ${booking.status})`,
+          );
           return res.status(400).json({
             success: false,
             message:
@@ -272,7 +289,9 @@ class BookingController {
         const seatsDifference = seats - booking.seats;
 
         if (seatsDifference > 0 && seatsDifference > ride.seats_left) {
-          console.warn(`[BookingController] Not enough seats for booking ${id}. Requested: ${seatsDifference}, Available: ${ride.seats_left}`);
+          console.warn(
+            `[BookingController] Not enough seats for booking ${id}. Requested: ${seatsDifference}, Available: ${ride.seats_left}`,
+          );
           return res.status(400).json({
             success: false,
             message: `Only ${ride.seats_left} more seat(s) available on this ride`,
@@ -282,14 +301,18 @@ class BookingController {
       }
 
       const oldStatus = booking.status;
-      console.log(`[BookingController] Old status: ${oldStatus}, New status requested: ${status}`);
+      console.log(
+        `[BookingController] Old status: ${oldStatus}, New status requested: ${status}`,
+      );
 
       // Logic for updating status
       if (status && status !== oldStatus) {
         // Validate status transitions
         if (status === "accepted" || status === "rejected") {
           if (!isDriver) {
-            console.warn(`[BookingController] Non-driver ${userId} tried to ${status} booking ${id}`);
+            console.warn(
+              `[BookingController] Non-driver ${userId} tried to ${status} booking ${id}`,
+            );
             return res.status(403).json({
               success: false,
               message: "Only the driver can accept or reject bookings",
@@ -297,7 +320,9 @@ class BookingController {
           }
 
           if (oldStatus !== "pending") {
-            console.warn(`[BookingController] Tried to ${status} non-pending booking ${id} (status: ${oldStatus})`);
+            console.warn(
+              `[BookingController] Tried to ${status} non-pending booking ${id} (status: ${oldStatus})`,
+            );
             return res.status(400).json({
               success: false,
               message: "Can only accept/reject pending bookings",
@@ -307,7 +332,9 @@ class BookingController {
 
         if (status === "cancelled") {
           if (!isPassenger) {
-            console.warn(`[BookingController] Non-passenger ${userId} tried to cancel booking ${id}`);
+            console.warn(
+              `[BookingController] Non-passenger ${userId} tried to cancel booking ${id}`,
+            );
             return res.status(403).json({
               success: false,
               message: "Only the passenger can cancel their booking",
@@ -315,7 +342,9 @@ class BookingController {
           }
 
           if (!["pending", "accepted"].includes(oldStatus)) {
-            console.warn(`[BookingController] Tried to cancel booking ${id} with invalid status ${oldStatus}`);
+            console.warn(
+              `[BookingController] Tried to cancel booking ${id} with invalid status ${oldStatus}`,
+            );
             return res.status(400).json({
               success: false,
               message: "Cannot cancel this booking",
@@ -327,7 +356,9 @@ class BookingController {
           const hoursUntilRide = (rideDate - now) / (1000 * 60 * 60);
 
           if (hoursUntilRide < 24 && oldStatus === "accepted") {
-            console.warn(`[BookingController] Tried to cancel accepted booking ${id} less than 24 hours before ride`);
+            console.warn(
+              `[BookingController] Tried to cancel accepted booking ${id} less than 24 hours before ride`,
+            );
             return res.status(400).json({
               success: false,
               message: "Cannot cancel less than 24 hours before the ride",
@@ -337,40 +368,88 @@ class BookingController {
           // Process refund for passenger cancellation
           if (booking.payment_status === "paid") {
             try {
-              console.log(`[BookingCancel] Processing refund for booking ${id}, payment method: ${booking.payment_method}`);
-              
-              if (booking.payment_method === "card" && booking.payment_intent_id) {
+              console.log(
+                `[BookingCancel] Processing refund for booking ${id}, payment method: ${booking.payment_method}`,
+              );
+
+              if (
+                booking.payment_method === "card" &&
+                booking.payment_intent_id
+              ) {
                 // CARD PAYMENT REFUND via Stripe
-                console.log(`[BookingCancel] Refunding card payment for booking ${id}, PaymentIntent: ${booking.payment_intent_id}`);
-                
+                console.log(
+                  `[BookingCancel] Refunding card payment for booking ${id}, PaymentIntent: ${booking.payment_intent_id}`,
+                );
+
                 const refundParams = {
                   payment_intent: booking.payment_intent_id,
                 };
 
                 // Check if the payment had a transfer (driver has Stripe Connect)
                 try {
-                  const paymentIntent = await stripe.paymentIntents.retrieve(booking.payment_intent_id);
+                  const paymentIntent = await stripe.paymentIntents.retrieve(
+                    booking.payment_intent_id,
+                  );
                   if (paymentIntent.transfer_data?.destination) {
                     // Driver has Stripe Connect - reverse the transfer and application fee
                     refundParams.reverse_transfer = true;
                     refundParams.refund_application_fee = true;
-                    console.log(`[BookingCancel] Reversing transfer to ${paymentIntent.transfer_data.destination} and application fee`);
+                    console.log(
+                      `[BookingCancel] Reversing transfer to ${paymentIntent.transfer_data.destination} and application fee`,
+                    );
                   }
                 } catch (retrieveErr) {
-                  console.error(`[BookingCancel] Error retrieving PaymentIntent ${booking.payment_intent_id}:`, retrieveErr.message);
+                  console.error(
+                    `[BookingCancel] Error retrieving PaymentIntent ${booking.payment_intent_id}:`,
+                    retrieveErr.message,
+                  );
                 }
 
                 const refund = await stripe.refunds.create(refundParams);
-                console.log(`[BookingCancel] Stripe refund created: ${refund.id}, Amount: ${refund.amount} cents`);
+                console.log(
+                  `[BookingCancel] Stripe refund created: ${refund.id}, Amount: ${refund.amount} cents`,
+                );
+
+                // Create a transaction record for the passenger to show the refund in their history
+                const passengerWallet = await Wallet.getOrCreateWallet(
+                  booking.passenger_id,
+                );
+                await Transaction.create({
+                  wallet_id: passengerWallet._id,
+                  user_id: booking.passenger_id,
+                  type: "refund",
+                  amount: refund.amount,
+                  gross_amount: refund.amount,
+                  fee_amount: 0,
+                  fee_percentage: 0,
+                  net_amount: refund.amount,
+                  currency: "EUR",
+                  status: "completed",
+                  reference_type: "booking",
+                  reference_id: booking._id,
+                  stripe_payment_intent_id: booking.payment_intent_id,
+                  description: "Card refund - passenger cancelled booking",
+                  processed_at: new Date(),
+                });
+                console.log(
+                  `[BookingCancel] Created transaction record for card refund: ${refund.amount} cents to passenger`,
+                );
 
                 // If driver was credited via wallet (no Stripe Connect), deduct from driver's wallet
                 const driver = await User.findById(ride.driver_id._id);
                 if (!driver?.stripeAccountId) {
                   try {
-                    const driverWallet = await Wallet.getOrCreateWallet(ride.driver_id._id);
-                    const feePercentage = parseFloat(process.env.PLATFORM_FEE_PERCENT || "10");
-                    const grossAmount = ride.price_per_seat * booking.seats * 100;
-                    const driverEarnings = Math.round(grossAmount * ((100 - feePercentage) / 100));
+                    const driverWallet = await Wallet.getOrCreateWallet(
+                      ride.driver_id._id,
+                    );
+                    const feePercentage = parseFloat(
+                      process.env.PLATFORM_FEE_PERCENT || "10",
+                    );
+                    const grossAmount =
+                      ride.price_per_seat * booking.seats * 100;
+                    const driverEarnings = Math.round(
+                      grossAmount * ((100 - feePercentage) / 100),
+                    );
 
                     if (driverWallet.balance >= driverEarnings) {
                       driverWallet.balance -= driverEarnings;
@@ -391,28 +470,45 @@ class BookingController {
                         reference_type: "booking",
                         reference_id: booking._id,
                         stripe_payment_intent_id: booking.payment_intent_id,
-                        description: "Driver earnings reversed - passenger cancelled booking",
+                        description:
+                          "Driver earnings reversed - passenger cancelled booking",
                         processed_at: new Date(),
                       });
-                      console.log(`[BookingCancel] Deducted ${driverEarnings} cents from driver wallet`);
+                      console.log(
+                        `[BookingCancel] Deducted ${driverEarnings} cents from driver wallet`,
+                      );
                     } else {
-                      console.warn(`[BookingCancel] Driver wallet has insufficient balance for refund. Required: ${driverEarnings}, Available: ${driverWallet.balance}`);
+                      console.warn(
+                        `[BookingCancel] Driver wallet has insufficient balance for refund. Required: ${driverEarnings}, Available: ${driverWallet.balance}`,
+                      );
                     }
                   } catch (walletErr) {
-                    console.error(`[BookingCancel] Error deducting from driver wallet:`, walletErr.message);
+                    console.error(
+                      `[BookingCancel] Error deducting from driver wallet:`,
+                      walletErr.message,
+                    );
                   }
                 }
-
               } else if (booking.payment_method === "wallet") {
                 // WALLET PAYMENT REFUND
-                console.log(`[BookingCancel] Refunding wallet payment for booking ${id}`);
-                
-                const totalAmount = Math.round(ride.price_per_seat * booking.seats * 100);
-                const feePercentage = parseFloat(process.env.PLATFORM_FEE_PERCENT || "10");
-                const driverEarnings = Math.round(totalAmount * ((100 - feePercentage) / 100));
+                console.log(
+                  `[BookingCancel] Refunding wallet payment for booking ${id}`,
+                );
+
+                const totalAmount = Math.round(
+                  ride.price_per_seat * booking.seats * 100,
+                );
+                const feePercentage = parseFloat(
+                  process.env.PLATFORM_FEE_PERCENT || "10",
+                );
+                const driverEarnings = Math.round(
+                  totalAmount * ((100 - feePercentage) / 100),
+                );
 
                 // Credit passenger's wallet with FULL amount (100%)
-                const passengerWallet = await Wallet.getOrCreateWallet(booking.passenger_id);
+                const passengerWallet = await Wallet.getOrCreateWallet(
+                  booking.passenger_id,
+                );
                 passengerWallet.balance += totalAmount;
                 await passengerWallet.save();
 
@@ -435,7 +531,9 @@ class BookingController {
                 });
 
                 // Deduct from driver's wallet
-                const driverWallet = await Wallet.getOrCreateWallet(ride.driver_id._id);
+                const driverWallet = await Wallet.getOrCreateWallet(
+                  ride.driver_id._id,
+                );
                 if (driverWallet.balance >= driverEarnings) {
                   driverWallet.balance -= driverEarnings;
                   driverWallet.total_earned -= driverEarnings;
@@ -454,14 +552,19 @@ class BookingController {
                     status: "completed",
                     reference_type: "booking",
                     reference_id: booking._id,
-                    description: "Driver earnings reversed - passenger cancelled booking",
+                    description:
+                      "Driver earnings reversed - passenger cancelled booking",
                     processed_at: new Date(),
                   });
                 } else {
-                  console.warn(`[BookingCancel] Driver wallet has insufficient balance for refund. Required: ${driverEarnings}, Available: ${driverWallet.balance}`);
+                  console.warn(
+                    `[BookingCancel] Driver wallet has insufficient balance for refund. Required: ${driverEarnings}, Available: ${driverWallet.balance}`,
+                  );
                 }
 
-                console.log(`[BookingCancel] Wallet refund: ${totalAmount} cents to passenger, ${driverEarnings} cents deducted from driver`);
+                console.log(
+                  `[BookingCancel] Wallet refund: ${totalAmount} cents to passenger, ${driverEarnings} cents deducted from driver`,
+                );
 
                 // Mark booking as refunded
                 booking.payment_status = "refunded";
@@ -471,13 +574,17 @@ class BookingController {
 
               // Mark booking as refunded
               booking.payment_status = "refunded";
-            booking.refund_id = refund.id;
-            booking.refunded_at = new Date();
-            booking.refund_reason = "passenger_cancelled";
+              booking.refund_id = refund.id;
+              booking.refunded_at = new Date();
+              booking.refund_reason = "passenger_cancelled";
             } catch (refundError) {
-              console.error(`[BookingCancel] Error processing refund for booking ${id}:`, refundError);
+              console.error(
+                `[BookingCancel] Error processing refund for booking ${id}:`,
+                refundError,
+              );
               // Don't fail the cancellation if refund fails - log it for manual processing
-              message = "Booking cancelled successfully. Refund will be processed manually.";
+              message =
+                "Booking cancelled successfully. Refund will be processed manually.";
             }
           }
         }
@@ -494,15 +601,22 @@ class BookingController {
         if (oldStatus === "pending" && status === "accepted") {
           // const ride = await Ride.findById(rideId); // Ride already populated
           if (ride.seats_left < booking.seats) {
-            console.warn(`[BookingController] Not enough seats to accept booking ${id}. Ride seats left: ${ride.seats_left}, Booking seats: ${booking.seats}`);
+            console.warn(
+              `[BookingController] Not enough seats to accept booking ${id}. Ride seats left: ${ride.seats_left}, Booking seats: ${booking.seats}`,
+            );
             return res.status(400).json({
               success: false,
               message: `Cannot accept booking. Only ${ride.seats_left} seat(s) available.`,
             });
           }
           // Check luggage capacity
-          if (booking.luggage_count > 0 && ride.luggage_left < booking.luggage_count) {
-            console.warn(`[BookingController] Not enough luggage space to accept booking ${id}. Ride luggage left: ${ride.luggage_left}, Booking luggage: ${booking.luggage_count}`);
+          if (
+            booking.luggage_count > 0 &&
+            ride.luggage_left < booking.luggage_count
+          ) {
+            console.warn(
+              `[BookingController] Not enough luggage space to accept booking ${id}. Ride luggage left: ${ride.luggage_left}, Booking luggage: ${booking.luggage_count}`,
+            );
             return res.status(400).json({
               success: false,
               message: `Cannot accept booking. Only ${ride.luggage_left} luggage spot(s) available.`,
@@ -515,9 +629,11 @@ class BookingController {
           await Ride.findByIdAndUpdate(
             rideId,
             { $inc: updateInc },
-            { new: true }
+            { new: true },
           );
-          console.log(`[BookingController] Decremented seats_left for ride ${rideId} by ${booking.seats}, luggage_left by ${booking.luggage_count || 0}`);
+          console.log(
+            `[BookingController] Decremented seats_left for ride ${rideId} by ${booking.seats}, luggage_left by ${booking.luggage_count || 0}`,
+          );
         } else if (oldStatus === "accepted" && status === "cancelled") {
           const updateInc = { seats_left: booking.seats };
           if (booking.luggage_count > 0) {
@@ -526,14 +642,18 @@ class BookingController {
           await Ride.findByIdAndUpdate(
             rideId,
             { $inc: updateInc },
-            { new: true }
+            { new: true },
           );
-          console.log(`[BookingController] Incremented seats_left for ride ${rideId} by ${booking.seats}, luggage_left by ${booking.luggage_count || 0}`);
+          console.log(
+            `[BookingController] Incremented seats_left for ride ${rideId} by ${booking.seats}, luggage_left by ${booking.luggage_count || 0}`,
+          );
         }
       }
 
       await booking.save();
-      console.log(`[BookingController] Booking ${id} saved with new status: ${booking.status}`);
+      console.log(
+        `[BookingController] Booking ${id} saved with new status: ${booking.status}`,
+      );
 
       // Send notifications for status change (cache invalidation handled by NotificationService)
       if (status && status !== oldStatus) {
@@ -545,18 +665,22 @@ class BookingController {
               ride_id: booking.ride_id._id.toString(),
               driver_first_name: ride.driver_id?.first_name,
               driver_last_name: ride.driver_id?.last_name,
-            }
+            },
           );
-          console.log(`[BookingController] Sent accepted notification for booking ${id}`);
+          console.log(
+            `[BookingController] Sent accepted notification for booking ${id}`,
+          );
         } else if (status === "rejected") {
           await NotificationService.notifyBookingRejected(
             booking.passenger_id.toString(),
             {
               id: booking._id.toString(),
               ride_id: booking.ride_id._id.toString(),
-            }
+            },
           );
-          console.log(`[BookingController] Sent rejected notification for booking ${id}`);
+          console.log(
+            `[BookingController] Sent rejected notification for booking ${id}`,
+          );
         } else if (status === "cancelled") {
           await NotificationService.notifyBookingCancelled(
             booking.ride_id.driver_id.toString(),
@@ -564,9 +688,11 @@ class BookingController {
               id: booking._id.toString(),
               ride_id: booking.ride_id._id.toString(),
             },
-            true
+            true,
           );
-          console.log(`[BookingController] Sent cancelled notification for booking ${id}`);
+          console.log(
+            `[BookingController] Sent cancelled notification for booking ${id}`,
+          );
         }
       }
 
@@ -576,7 +702,10 @@ class BookingController {
         data: booking,
       });
     } catch (error) {
-      console.error(`[BookingController] Error in updateBooking for ID ${id}:`, error);
+      console.error(
+        `[BookingController] Error in updateBooking for ID ${id}:`,
+        error,
+      );
       next(error);
     }
   }

@@ -254,7 +254,7 @@ class RideController {
         console.log(
           `📍 Performing geospatial search near [${latitude}, ${longitude}] with radius ${radius}m`,
         );
-        
+
         // Use $geoNear as first stage for geospatial queries
         aggregationPipeline.push({
           $geoNear: {
@@ -266,20 +266,19 @@ class RideController {
             maxDistance: parseInt(radius),
             spherical: true,
             query: filter, // Apply all other filters here
-          }
+          },
         });
-        
+
         // Skip and limit after geospatial filtering
         if (skip > 0) aggregationPipeline.push({ $skip: skip });
         if (limitNum) aggregationPipeline.push({ $limit: limitNum });
-        
       } else {
         // Non-geospatial search - use regular pipeline
         aggregationPipeline.push(
           { $match: filter },
           { $sort: { datetime_start: 1 } },
           { $skip: skip },
-          { $limit: limitNum }
+          { $limit: limitNum },
         );
       }
 
@@ -309,7 +308,7 @@ class RideController {
             "driver_id.password": 0,
             "driver_id.email": 0,
           },
-        }
+        },
       );
 
       // Execute the aggregation pipeline
@@ -608,8 +607,13 @@ class RideController {
 
       // If luggage_capacity is being updated, adjust luggage_left accordingly
       if (updates.luggage_capacity !== undefined) {
-        const bookedLuggage = (existingRide.luggage_capacity || 0) - (existingRide.luggage_left || 0);
-        updates.luggage_left = Math.max(0, updates.luggage_capacity - bookedLuggage);
+        const bookedLuggage =
+          (existingRide.luggage_capacity || 0) -
+          (existingRide.luggage_left || 0);
+        updates.luggage_left = Math.max(
+          0,
+          updates.luggage_capacity - bookedLuggage,
+        );
       }
 
       const updatedRide = await Ride.findByIdAndUpdate(id, updates, {
@@ -660,7 +664,8 @@ class RideController {
       if (hoursUntilRide < 12) {
         return res.status(400).json({
           success: false,
-          message: "Cannot cancel ride less than 12 hours before departure. Please contact support if this is an emergency.",
+          message:
+            "Cannot cancel ride less than 12 hours before departure. Please contact support if this is an emergency.",
         });
       }
 
@@ -668,10 +673,12 @@ class RideController {
       const paidBookings = await Booking.find({
         ride_id: id,
         status: { $in: ["pending", "accepted"] },
-        payment_status: "paid"
+        payment_status: "paid",
       }).populate("passenger_id", "first_name last_name");
 
-      console.log(`[RideCancel] Found ${paidBookings.length} paid bookings to refund for ride ${id}`);
+      console.log(
+        `[RideCancel] Found ${paidBookings.length} paid bookings to refund for ride ${id}`,
+      );
 
       // Cancel the ride
       const cancelledRide = await Ride.findByIdAndUpdate(
@@ -697,17 +704,21 @@ class RideController {
       const refundResults = {
         processed: 0,
         failed: 0,
-        errors: []
+        errors: [],
       };
 
       for (const booking of paidBookings) {
         try {
-          console.log(`[RideCancel] Processing refund for booking ${booking._id}, payment method: ${booking.payment_method}`);
-          
+          console.log(
+            `[RideCancel] Processing refund for booking ${booking._id}, payment method: ${booking.payment_method}`,
+          );
+
           if (booking.payment_method === "card" && booking.payment_intent_id) {
             // CARD PAYMENT REFUND via Stripe
-            console.log(`[RideCancel] Refunding card payment for booking ${booking._id}, PaymentIntent: ${booking.payment_intent_id}`);
-            
+            console.log(
+              `[RideCancel] Refunding card payment for booking ${booking._id}, PaymentIntent: ${booking.payment_intent_id}`,
+            );
+
             const stripe = require("stripe")(process.env.STRIPE_SECRET_KEY);
             const refundParams = {
               payment_intent: booking.payment_intent_id,
@@ -715,28 +726,67 @@ class RideController {
 
             // Check if the payment had a transfer (driver has Stripe Connect)
             try {
-              const paymentIntent = await stripe.paymentIntents.retrieve(booking.payment_intent_id);
+              const paymentIntent = await stripe.paymentIntents.retrieve(
+                booking.payment_intent_id,
+              );
               if (paymentIntent.transfer_data?.destination) {
                 // Driver has Stripe Connect - reverse the transfer and application fee
                 refundParams.reverse_transfer = true;
                 refundParams.refund_application_fee = true;
-                console.log(`[RideCancel] Reversing transfer to ${paymentIntent.transfer_data.destination} and application fee`);
+                console.log(
+                  `[RideCancel] Reversing transfer to ${paymentIntent.transfer_data.destination} and application fee`,
+                );
               }
             } catch (retrieveErr) {
-              console.error(`[RideCancel] Error retrieving PaymentIntent ${booking.payment_intent_id}:`, retrieveErr.message);
+              console.error(
+                `[RideCancel] Error retrieving PaymentIntent ${booking.payment_intent_id}:`,
+                retrieveErr.message,
+              );
             }
 
             const refund = await stripe.refunds.create(refundParams);
-            console.log(`[RideCancel] Stripe refund created: ${refund.id}, Amount: ${refund.amount} cents`);
+            console.log(
+              `[RideCancel] Stripe refund created: ${refund.id}, Amount: ${refund.amount} cents`,
+            );
+
+            // Create a transaction record for the passenger to show the refund in their history
+            const passengerWallet = await Wallet.getOrCreateWallet(
+              booking.passenger_id,
+            );
+            await Transaction.create({
+              wallet_id: passengerWallet._id,
+              user_id: booking.passenger_id,
+              type: "refund",
+              amount: refund.amount,
+              gross_amount: refund.amount,
+              fee_amount: 0,
+              fee_percentage: 0,
+              net_amount: refund.amount,
+              currency: "EUR",
+              status: "completed",
+              reference_type: "booking",
+              reference_id: booking._id,
+              stripe_payment_intent_id: booking.payment_intent_id,
+              description: "Card refund - driver cancelled ride",
+              processed_at: new Date(),
+            });
+            console.log(
+              `[RideCancel] Created transaction record for card refund: ${refund.amount} cents to passenger`,
+            );
 
             // If driver was credited via wallet (no Stripe Connect), deduct from driver's wallet
             const driver = await User.findById(driverId);
             if (!driver?.stripeAccountId) {
               try {
                 const driverWallet = await Wallet.getOrCreateWallet(driverId);
-                const feePercentage = parseFloat(process.env.PLATFORM_FEE_PERCENT || "10");
-                const grossAmount = existingRide.price_per_seat * booking.seats * 100;
-                const driverEarnings = Math.round(grossAmount * ((100 - feePercentage) / 100));
+                const feePercentage = parseFloat(
+                  process.env.PLATFORM_FEE_PERCENT || "10",
+                );
+                const grossAmount =
+                  existingRide.price_per_seat * booking.seats * 100;
+                const driverEarnings = Math.round(
+                  grossAmount * ((100 - feePercentage) / 100),
+                );
 
                 if (driverWallet.balance >= driverEarnings) {
                   driverWallet.balance -= driverEarnings;
@@ -757,15 +807,23 @@ class RideController {
                     reference_type: "booking",
                     reference_id: booking._id,
                     stripe_payment_intent_id: booking.payment_intent_id,
-                    description: "Driver earnings reversed - driver cancelled ride",
+                    description:
+                      "Driver earnings reversed - driver cancelled ride",
                     processed_at: new Date(),
                   });
-                  console.log(`[RideCancel] Deducted ${driverEarnings} cents from driver wallet`);
+                  console.log(
+                    `[RideCancel] Deducted ${driverEarnings} cents from driver wallet`,
+                  );
                 } else {
-                  console.warn(`[RideCancel] Driver wallet has insufficient balance for refund. Required: ${driverEarnings}, Available: ${driverWallet.balance}`);
+                  console.warn(
+                    `[RideCancel] Driver wallet has insufficient balance for refund. Required: ${driverEarnings}, Available: ${driverWallet.balance}`,
+                  );
                 }
               } catch (walletErr) {
-                console.error(`[RideCancel] Error deducting from driver wallet:`, walletErr.message);
+                console.error(
+                  `[RideCancel] Error deducting from driver wallet:`,
+                  walletErr.message,
+                );
               }
             }
 
@@ -774,19 +832,28 @@ class RideController {
               payment_status: "refunded",
               refund_id: refund.id,
               refunded_at: new Date(),
-              refund_reason: "ride_cancelled"
+              refund_reason: "ride_cancelled",
             });
-
           } else if (booking.payment_method === "wallet") {
             // WALLET PAYMENT REFUND
-            console.log(`[RideCancel] Refunding wallet payment for booking ${booking._id}`);
-            
-            const totalAmount = Math.round(existingRide.price_per_seat * booking.seats * 100);
-            const feePercentage = parseFloat(process.env.PLATFORM_FEE_PERCENT || "10");
-            const driverEarnings = Math.round(totalAmount * ((100 - feePercentage) / 100));
+            console.log(
+              `[RideCancel] Refunding wallet payment for booking ${booking._id}`,
+            );
+
+            const totalAmount = Math.round(
+              existingRide.price_per_seat * booking.seats * 100,
+            );
+            const feePercentage = parseFloat(
+              process.env.PLATFORM_FEE_PERCENT || "10",
+            );
+            const driverEarnings = Math.round(
+              totalAmount * ((100 - feePercentage) / 100),
+            );
 
             // Credit passenger's wallet with FULL amount (100%)
-            const passengerWallet = await Wallet.getOrCreateWallet(booking.passenger_id);
+            const passengerWallet = await Wallet.getOrCreateWallet(
+              booking.passenger_id,
+            );
             passengerWallet.balance += totalAmount;
             await passengerWallet.save();
 
@@ -832,25 +899,33 @@ class RideController {
                 processed_at: new Date(),
               });
             } else {
-              console.warn(`[RideCancel] Driver wallet has insufficient balance for refund. Required: ${driverEarnings}, Available: ${driverWallet.balance}`);
+              console.warn(
+                `[RideCancel] Driver wallet has insufficient balance for refund. Required: ${driverEarnings}, Available: ${driverWallet.balance}`,
+              );
             }
 
             // Update booking with refund information
             await Booking.findByIdAndUpdate(booking._id, {
               payment_status: "refunded",
               refunded_at: new Date(),
-              refund_reason: "ride_cancelled"
+              refund_reason: "ride_cancelled",
             });
 
-            console.log(`[RideCancel] Wallet refund: ${totalAmount} cents to passenger, ${driverEarnings} cents deducted from driver`);
+            console.log(
+              `[RideCancel] Wallet refund: ${totalAmount} cents to passenger, ${driverEarnings} cents deducted from driver`,
+            );
           }
 
           refundResults.processed++;
-          
         } catch (refundError) {
-          console.error(`[RideCancel] Error processing refund for booking ${booking._id}:`, refundError);
+          console.error(
+            `[RideCancel] Error processing refund for booking ${booking._id}:`,
+            refundError,
+          );
           refundResults.failed++;
-          refundResults.errors.push(`Booking ${booking._id}: ${refundError.message}`);
+          refundResults.errors.push(
+            `Booking ${booking._id}: ${refundError.message}`,
+          );
         }
       }
 
