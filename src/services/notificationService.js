@@ -231,6 +231,7 @@ class NotificationService {
         driver_name: requestData.driver_name,
         price_total: requestData.price_total,
         seats: requestData.seats,
+        luggage_count: requestData.luggage_count,
         pickup_location: requestData.pickup_location,
         dropoff_location: requestData.dropoff_location,
       },

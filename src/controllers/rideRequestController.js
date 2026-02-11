@@ -640,6 +640,28 @@ exports.acceptOffer = async (req, res, next) => {
       return res.status(404).json({ message: "Offer not found" });
     }
 
+    // Get the ride details to validate availability
+    const ride = await require("../models/Ride").findById(offer.ride);
+    if (!ride) {
+      return res.status(404).json({ message: "Ride not found" });
+    }
+
+    // Check if ride has enough seats
+    if (ride.seats_left < request.seats_needed) {
+      return res.status(400).json({
+        message: `Not enough seats available. Requested: ${request.seats_needed}, Available: ${ride.seats_left}`,
+        code: "INSUFFICIENT_SEATS",
+      });
+    }
+
+    // Check if ride has enough luggage capacity
+    if (ride.luggage_left < request.luggage_count) {
+      return res.status(400).json({
+        message: `Not enough luggage space available. Requested: ${request.luggage_count}, Available: ${ride.luggage_left}`,
+        code: "INSUFFICIENT_LUGGAGE",
+      });
+    }
+
     // Accept this offer
     offer.status = "accepted";
 
@@ -655,6 +677,22 @@ exports.acceptOffer = async (req, res, next) => {
     request.matched_ride = offer.ride;
 
     await request.save();
+
+    // Update ride availability - deduct seats and luggage
+    await require("../models/Ride").findByIdAndUpdate(
+      offer.ride,
+      {
+        $inc: {
+          seats_left: -request.seats_needed,
+          luggage_left: -request.luggage_count,
+        },
+      },
+      { new: true },
+    );
+    console.log(
+      `Updated ride ${offer.ride}: -${request.seats_needed} seats, -${request.luggage_count} luggage`,
+    );
+
     await request.populate([
       "airport",
       "matched_driver",
@@ -776,6 +814,28 @@ exports.acceptOfferWithPayment = async (req, res, next) => {
 
     if (offer.status !== "pending") {
       return res.status(400).json({ message: "Offer is no longer pending" });
+    }
+
+    // Get the ride details to validate availability
+    const ride = await require("../models/Ride").findById(offer.ride);
+    if (!ride) {
+      return res.status(404).json({ message: "Ride not found" });
+    }
+
+    // Check if ride has enough seats
+    if (ride.seats_left < request.seats_needed) {
+      return res.status(400).json({
+        message: `Not enough seats available. Requested: ${request.seats_needed}, Available: ${ride.seats_left}`,
+        code: "INSUFFICIENT_SEATS",
+      });
+    }
+
+    // Check if ride has enough luggage capacity
+    if (ride.luggage_left < request.luggage_count) {
+      return res.status(400).json({
+        message: `Not enough luggage space available. Requested: ${request.luggage_count}, Available: ${ride.luggage_left}`,
+        code: "INSUFFICIENT_LUGGAGE",
+      });
     }
 
     // Calculate total amount
@@ -969,6 +1029,22 @@ exports.acceptOfferWithPayment = async (req, res, next) => {
     request.payment_status = "paid";
 
     await request.save();
+
+    // Update ride availability - deduct seats and luggage
+    await require("../models/Ride").findByIdAndUpdate(
+      offer.ride,
+      {
+        $inc: {
+          seats_left: -request.seats_needed,
+          luggage_left: -request.luggage_count,
+        },
+      },
+      { new: true },
+    );
+    console.log(
+      `Updated ride ${offer.ride}: -${request.seats_needed} seats, -${request.luggage_count} luggage`,
+    );
+
     await request.populate([
       "airport",
       "matched_driver",
@@ -1028,6 +1104,7 @@ exports.acceptOfferWithPayment = async (req, res, next) => {
           `${populatedRequest.matched_driver?.first_name || ""} ${populatedRequest.matched_driver?.last_name || ""}`.trim(),
         price_total: totalAmount,
         seats: request.seats_needed,
+        luggage_count: request.luggage_count,
         pickup_location: request.pickup_location?.address || "",
         dropoff_location: request.dropoff_location?.address || "",
       });
@@ -1156,7 +1233,7 @@ exports.rejectOffer = async (req, res, next) => {
 // Cancel a request (passenger only)
 exports.cancelRequest = async (req, res, next) => {
   try {
-    const request = await RideRequest.findOneAndDelete({
+    const request = await RideRequest.findOne({
       _id: req.params.id,
       passenger: req.user.id,
     });
@@ -1164,6 +1241,26 @@ exports.cancelRequest = async (req, res, next) => {
     if (!request) {
       return res.status(404).json({ message: "Request not found" });
     }
+
+    // If request was accepted, we need to restore ride capacity
+    if (request.status === "accepted" && request.matched_ride) {
+      await require("../models/Ride").findByIdAndUpdate(
+        request.matched_ride,
+        {
+          $inc: {
+            seats_left: +request.seats_needed,
+            luggage_left: +request.luggage_count,
+          },
+        },
+        { new: true },
+      );
+      console.log(
+        `Restored ride capacity: +${request.seats_needed} seats, +${request.luggage_count} luggage`,
+      );
+    }
+
+    // Now delete the request
+    await RideRequest.findByIdAndDelete(request._id);
 
     res.json({
       message: "Request cancelled and removed successfully",
