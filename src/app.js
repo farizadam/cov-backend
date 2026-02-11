@@ -15,6 +15,7 @@ const walletRoutes = require("./routes/walletRoutes");
 const stripeRoutes = require("./routes/stripeRoutes");
 const chatRoutes = require("./routes/chatRoutes");
 const ratingRoutes = require("./routes/ratingRoutes");
+const geocodingRoutes = require("./routes/geocodingRoutes");
 
 const app = express();
 
@@ -69,6 +70,7 @@ app.use("/api/v1/payments", paymentRoutes);
 app.use("/api/v1/wallet", walletRoutes);
 app.use("/api/v1/chat", chatRoutes);
 app.use("/api/v1/ratings", ratingRoutes);
+app.use("/api/v1/geocoding", geocodingRoutes);
 
 // Health check
 app.get("/health", (req, res) => {
