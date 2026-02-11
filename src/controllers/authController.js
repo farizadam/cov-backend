@@ -254,12 +254,40 @@ class AuthController {
     try {
       const { email, password } = req.validatedBody;
       const emailNormalized = (email || "").toLowerCase().trim();
+
+      console.log("DEBUG: login attempt", {
+        emailNormalized,
+        passwordLength: password?.length,
+      });
+
       const user = await User.findOne({
         email: emailNormalized,
         deleted_at: null,
       });
 
-      if (!user || !(await bcrypt.compare(password, user.password_hash))) {
+      if (!user) {
+        console.log("DEBUG: user not found for email:", emailNormalized);
+        return res
+          .status(401)
+          .json({ success: false, message: "Invalid email or password" });
+      }
+
+      console.log("DEBUG: user found", {
+        userId: user._id,
+        email: user.email,
+        passwordHashExists: !!user.password_hash,
+        passwordHashLength: user.password_hash?.length,
+      });
+
+      const isPasswordValid = await bcrypt.compare(
+        password,
+        user.password_hash,
+      );
+
+      console.log("DEBUG: password comparison result:", isPasswordValid);
+
+      if (!isPasswordValid) {
+        console.log("DEBUG: password mismatch for user:", emailNormalized);
         return res
           .status(401)
           .json({ success: false, message: "Invalid email or password" });
