@@ -753,6 +753,11 @@ class RideController {
             const passengerWallet = await Wallet.getOrCreateWallet(
               booking.passenger_id,
             );
+
+            // ADD MONEY TO PASSENGER'S WALLET BALANCE
+            passengerWallet.balance += refund.amount;
+            await passengerWallet.save();
+
             await Transaction.create({
               wallet_id: passengerWallet._id,
               user_id: booking.passenger_id,
@@ -771,7 +776,7 @@ class RideController {
               processed_at: new Date(),
             });
             console.log(
-              `[RideCancel] Created transaction record for card refund: ${refund.amount} cents to passenger`,
+              `[RideCancel] Added ${refund.amount} cents to passenger wallet and created transaction record`,
             );
 
             // If driver was credited via wallet (no Stripe Connect), deduct from driver's wallet
