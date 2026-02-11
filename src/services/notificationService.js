@@ -6,9 +6,31 @@ class NotificationService {
    * Helper to create notification and invalidate cache
    */
   static async createAndInvalidateCache(userId, notificationData) {
+    console.log(
+      "[NotificationService] Creating notification for user:",
+      userId,
+    );
+    console.log(
+      "[NotificationService] Notification type:",
+      notificationData.type,
+    );
+    console.log(
+      "[NotificationService] Notification payload:",
+      JSON.stringify(notificationData.payload),
+    );
+
     const notification = await Notification.create(notificationData);
+
+    console.log(
+      "[NotificationService] Notification created with ID:",
+      notification._id,
+    );
+
     // Invalidate user's notification cache so they see updates immediately
-    await safeDel(`notifications:${userId.toString()}`);
+    const cacheKey = `notifications:${userId.toString()}`;
+    await safeDel(cacheKey);
+    console.log("[NotificationService] Cache invalidated for key:", cacheKey);
+
     return notification;
   }
 

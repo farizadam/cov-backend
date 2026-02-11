@@ -105,19 +105,29 @@ class BookingController {
         });
 
       // Notify driver
-      await NotificationService.notifyBookingRequest(
-        ride.driver_id.toString(),
-        {
-          id: booking._id.toString(),
-          ride_id: rideId,
-          passenger_first_name: bookingWithDetails.passenger_id?.first_name,
-          passenger_last_name: bookingWithDetails.passenger_id?.last_name,
-          seats,
-          pickup_location,
-          dropoff_location,
-        },
-      );
-      // Note: Cache invalidation is now handled automatically by NotificationService
+      try {
+        await NotificationService.notifyBookingRequest(
+          ride.driver_id.toString(),
+          {
+            id: booking._id.toString(),
+            ride_id: rideId,
+            passenger_first_name: bookingWithDetails.passenger_id?.first_name,
+            passenger_last_name: bookingWithDetails.passenger_id?.last_name,
+            seats,
+            pickup_location,
+            dropoff_location,
+          },
+        );
+        console.log(
+          `[BookingController] Sent booking request notification to driver ${ride.driver_id}`,
+        );
+      } catch (notifErr) {
+        console.error(
+          "[BookingController] Failed to send booking request notification:",
+          notifErr?.message || notifErr,
+        );
+        // Do not fail the booking if notification fails
+      }
 
       res.status(201).json({
         success: true,

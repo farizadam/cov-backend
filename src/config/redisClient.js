@@ -2,6 +2,12 @@ const Redis = require("ioredis");
 
 const redisUrl = process.env.REDIS_URL || "redis://127.0.0.1:6379";
 
+console.log("[RedisClient] Initializing with URL:", redisUrl);
+console.log(
+  "[RedisClient] REDIS_URL env var:",
+  process.env.REDIS_URL || "NOT SET",
+);
+
 let redisErrorLogged = false;
 
 const redis = new Redis(redisUrl, {
@@ -17,9 +23,16 @@ const redis = new Redis(redisUrl, {
   },
 });
 
+redis.on("ready", () => {
+  console.log("[RedisClient] ✅ Connected to Redis successfully");
+});
+
 redis.on("error", (err) => {
   if (!redisErrorLogged) {
-    console.warn("⚠️  Redis not available (optional - caching disabled)");
+    console.warn(
+      "⚠️  [RedisClient] Redis not available (optional - caching disabled)",
+    );
+    console.warn("[RedisClient] Error details:", err.message);
     redisErrorLogged = true;
   }
 });
@@ -36,9 +49,13 @@ function isRedisReady() {
 /** Safe GET – returns null when Redis is down */
 async function safeGet(key) {
   try {
-    if (!isRedisReady()) return null;
+    if (!isRedisReady()) {
+      console.log("[RedisClient] Redis not ready for GET:", key);
+      return null;
+    }
     return await redis.get(key);
-  } catch {
+  } catch (err) {
+    console.error("[RedisClient] GET error for key", key, ":", err.message);
     return null;
   }
 }
@@ -46,20 +63,26 @@ async function safeGet(key) {
 /** Safe SETEX – silently fails when Redis is down */
 async function safeSetex(key, ttl, value) {
   try {
-    if (!isRedisReady()) return;
+    if (!isRedisReady()) {
+      console.log("[RedisClient] Redis not ready for SETEX:", key);
+      return;
+    }
     await redis.setex(key, ttl, value);
-  } catch {
-    // ignore
+  } catch (err) {
+    console.error("[RedisClient] SETEX error for key", key, ":", err.message);
   }
 }
 
 /** Safe DEL – silently fails when Redis is down */
 async function safeDel(keys) {
   try {
-    if (!isRedisReady()) return;
+    if (!isRedisReady()) {
+      console.log("[RedisClient] Redis not ready for DEL:", keys);
+      return;
+    }
     await redis.del(keys);
-  } catch {
-    // ignore
+  } catch (err) {
+    console.error("[RedisClient] DEL error for keys", keys, ":", err.message);
   }
 }
 

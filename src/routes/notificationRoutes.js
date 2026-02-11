@@ -12,13 +12,26 @@ router.get("/", auth, async (req, res) => {
     // Try cache first (safe – returns null when Redis is down)
     const cached = await safeGet(cacheKey);
     if (cached) {
-      console.log("[CACHE HIT] notifications");
+      console.log("[NotificationRoutes] CACHE HIT for user:", req.user.id);
       return res.json(JSON.parse(cached));
     }
+
+    console.log(
+      "[NotificationRoutes] Cache MISS for user:",
+      req.user.id,
+      "- Fetching from DB",
+    );
 
     const notifications = await Notification.find({ user_id: req.user.id })
       .sort({ createdAt: -1 })
       .limit(100);
+
+    console.log(
+      "[NotificationRoutes] Found",
+      notifications.length,
+      "notifications for user:",
+      req.user.id,
+    );
 
     const response = { notifications };
 
@@ -27,6 +40,7 @@ router.get("/", auth, async (req, res) => {
 
     res.json(response);
   } catch (error) {
+    console.error("[NotificationRoutes] Error fetching notifications:", error);
     res.status(500).json({ message: "Failed to fetch notifications" });
   }
 });
