@@ -641,21 +641,25 @@ exports.acceptOffer = async (req, res, next) => {
     }
 
     // Get the ride details to validate availability
-    const ride = await require("../models/Ride").findById(offer.ride);
-    if (!ride) {
-      return res.status(404).json({ message: "Ride not found" });
+    // Note: offer.ride might be null if driver didn't provide ride_id when making offer
+    let ride = null;
+    if (offer.ride) {
+      ride = await require("../models/Ride").findById(offer.ride);
+      if (!ride) {
+        return res.status(404).json({ message: "Ride not found" });
+      }
     }
 
-    // Check if ride has enough seats
-    if (ride.seats_left < request.seats_needed) {
+    // Check if ride has enough seats (only if ride is specified)
+    if (ride && ride.seats_left < request.seats_needed) {
       return res.status(400).json({
         message: `Not enough seats available. Requested: ${request.seats_needed}, Available: ${ride.seats_left}`,
         code: "INSUFFICIENT_SEATS",
       });
     }
 
-    // Check if ride has enough luggage capacity
-    if (ride.luggage_left < request.luggage_count) {
+    // Check if ride has enough luggage capacity (only if ride is specified)
+    if (ride && ride.luggage_left < request.luggage_count) {
       return res.status(400).json({
         message: `Not enough luggage space available. Requested: ${request.luggage_count}, Available: ${ride.luggage_left}`,
         code: "INSUFFICIENT_LUGGAGE",
@@ -817,21 +821,25 @@ exports.acceptOfferWithPayment = async (req, res, next) => {
     }
 
     // Get the ride details to validate availability
-    const ride = await require("../models/Ride").findById(offer.ride);
-    if (!ride) {
-      return res.status(404).json({ message: "Ride not found" });
+    // Note: offer.ride might be null if driver didn't provide ride_id when making offer
+    let ride = null;
+    if (offer.ride) {
+      ride = await require("../models/Ride").findById(offer.ride);
+      if (!ride) {
+        return res.status(404).json({ message: "Ride not found" });
+      }
     }
 
-    // Check if ride has enough seats
-    if (ride.seats_left < request.seats_needed) {
+    // Check if ride has enough seats (only if ride is specified)
+    if (ride && ride.seats_left < request.seats_needed) {
       return res.status(400).json({
         message: `Not enough seats available. Requested: ${request.seats_needed}, Available: ${ride.seats_left}`,
         code: "INSUFFICIENT_SEATS",
       });
     }
 
-    // Check if ride has enough luggage capacity
-    if (ride.luggage_left < request.luggage_count) {
+    // Check if ride has enough luggage capacity (only if ride is specified)
+    if (ride && ride.luggage_left < request.luggage_count) {
       return res.status(400).json({
         message: `Not enough luggage space available. Requested: ${request.luggage_count}, Available: ${ride.luggage_left}`,
         code: "INSUFFICIENT_LUGGAGE",
