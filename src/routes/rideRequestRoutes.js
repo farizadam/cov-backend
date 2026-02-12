@@ -20,6 +20,7 @@ router.get("/available", rideRequestController.getAvailableRequests);
 router.get("/my-offers", rideRequestController.getMyOffers);
 router.post("/:id/offer", rideRequestController.makeOffer);
 router.delete("/:id/offer", rideRequestController.withdrawOffer);
+router.delete("/:id/cancel-accepted-offer", rideRequestController.cancelAcceptedOffer);
 
 // Common routes
 router.get("/:id", rideRequestController.getRequest);

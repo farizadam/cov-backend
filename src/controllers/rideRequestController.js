@@ -1308,3 +1308,90 @@ exports.withdrawOffer = async (req, res, next) => {
     next(error);
   }
 };
+
+// Driver cancels their accepted offer
+exports.cancelAcceptedOffer = async (req, res, next) => {
+  const NotificationService = require("../services/notificationService");
+  const User = require("../models/User");
+  
+  try {
+    const requestId = req.params.id;
+    const driverId = req.user.id;
+
+    const request = await RideRequest.findById(requestId).populate("passenger");
+    if (!request) {
+      return res.status(404).json({ message: "Request not found" });
+    }
+
+    // Check if this driver's offer is accepted
+    const acceptedOfferIndex = request.offers.findIndex(
+      (o) => o.driver.toString() === driverId && o.status === "accepted",
+    );
+
+    if (acceptedOfferIndex === -1) {
+      return res.status(404).json({ message: "No accepted offer found from you" });
+    }
+
+    const acceptedOffer = request.offers[acceptedOfferIndex];
+
+    // Restore ride capacity if a ride was linked
+    if (acceptedOffer.ride) {
+      const Ride = require("../models/Ride");
+      await Ride.findByIdAndUpdate(
+        acceptedOffer.ride,
+        {
+          $inc: {
+            seats_left: +request.seats_needed,
+            luggage_left: +request.luggage_count,
+          },
+        },
+        { new: true },
+      );
+      console.log(
+        `[cancelAcceptedOffer] Restored ride capacity: +${request.seats_needed} seats, +${request.luggage_count} luggage`,
+      );
+    }
+
+    // Mark the request as no longer accepted
+    request.status = "pending";
+    request.matched_driver = null;
+    request.matched_ride = null;
+    
+    // Mark the offer as rejected (so driver can't accept again)
+    acceptedOffer.status = "rejected";
+    
+    await request.save();
+
+    // Notify passenger that the driver cancelled
+    try {
+      const driver = await User.findById(driverId).select("first_name last_name");
+      await NotificationService.notifyOfferCancelled(request.passenger._id, {
+        request_id: request._id.toString(),
+        driver_name: `${driver?.first_name} ${driver?.last_name}`,
+        ride_id: acceptedOffer.ride,
+      });
+      console.log("[cancelAcceptedOffer] Notification sent to passenger");
+    } catch (notifError) {
+      console.error("[cancelAcceptedOffer] Failed to send notification:", notifError);
+      // Don't fail if notification fails
+    }
+
+    // Invalidate caches
+    const userRequestKeys = await safeKeys(`user_requests:${request.passenger._id}:*`);
+    if (userRequestKeys.length > 0) {
+      await safeDel(userRequestKeys);
+    }
+    const driverOfferKeys = await safeKeys(`driver_offers:${driverId}:*`);
+    if (driverOfferKeys.length > 0) {
+      await safeDel(driverOfferKeys);
+    }
+
+    res.json({
+      message: "Offer cancelled successfully",
+      request,
+    });
+  } catch (error) {
+    console.error("[cancelAcceptedOffer] Error:", error);
+    next(error);
+  }
+};

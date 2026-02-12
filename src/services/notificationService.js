@@ -277,6 +277,22 @@ class NotificationService {
   }
 
   /**
+   * Send offer cancelled notification
+   * Called when a driver cancels their accepted offer
+   */
+  static async notifyOfferCancelled(passengerId, offerData) {
+    return await this.createAndInvalidateCache(passengerId, {
+      user_id: passengerId,
+      type: "offer_cancelled",
+      payload: {
+        request_id: offerData.request_id,
+        driver_name: offerData.driver_name,
+        ride_id: offerData.ride_id,
+      },
+    });
+  }
+
+  /**
    * Send rating received notification
    * Called when someone receives a new rating
    */
