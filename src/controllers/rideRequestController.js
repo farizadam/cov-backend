@@ -1313,7 +1313,7 @@ exports.withdrawOffer = async (req, res, next) => {
 exports.cancelAcceptedOffer = async (req, res, next) => {
   const NotificationService = require("../services/notificationService");
   const User = require("../models/User");
-  
+
   try {
     const requestId = req.params.id;
     const driverId = req.user.id;
@@ -1329,10 +1329,14 @@ exports.cancelAcceptedOffer = async (req, res, next) => {
     );
 
     if (acceptedOfferIndex === -1) {
-      return res.status(404).json({ message: "No accepted offer found from you" });
+      return res
+        .status(404)
+        .json({ message: "No accepted offer found from you" });
     }
 
     const acceptedOffer = request.offers[acceptedOfferIndex];
+    const Wallet = require("../models/Wallet");
+    const Transaction = require("../models/Transaction");
 
     // Restore ride capacity if a ride was linked
     if (acceptedOffer.ride) {
@@ -1352,19 +1356,240 @@ exports.cancelAcceptedOffer = async (req, res, next) => {
       );
     }
 
+    // Handle payment refund - both CARD and WALLET payments
+    if (
+      acceptedOffer.payment_method === "wallet" ||
+      acceptedOffer.payment_method === "card" ||
+      acceptedOffer.payment_status === "completed"
+    ) {
+      try {
+        const stripe = require("stripe")(process.env.STRIPE_SECRET_KEY);
+        const passenger = await User.findById(request.passenger._id);
+        const driver = await User.findById(driverId);
+        const passengerWallet = await Wallet.getOrCreateWallet(
+          request.passenger._id,
+        );
+        const driverWallet = await Wallet.getOrCreateWallet(driverId);
+
+        const refundAmount = Math.round(
+          acceptedOffer.price_per_seat * request.seats_needed * 100,
+        );
+        const platformFeePercent = parseFloat(
+          process.env.PLATFORM_FEE_PERCENT || "10",
+        );
+        const driverEarnings = Math.round(
+          refundAmount * ((100 - platformFeePercent) / 100),
+        );
+
+        // ===== CARD PAYMENT REFUND =====
+        if (acceptedOffer.payment_method === "card") {
+          console.log(
+            `[cancelAcceptedOffer] Processing CARD refund for offer ${acceptedOffer._id}`,
+          );
+
+          try {
+            // Create Stripe refund
+            const refundParams = {
+              payment_intent: acceptedOffer.payment_intent_id,
+            };
+
+            // Check if driver has Stripe Connect
+            if (driver?.stripeAccountId) {
+              // Reverse transfer and application fee
+              refundParams.reverse_transfer = true;
+              refundParams.refund_application_fee = true;
+              console.log(
+                `[cancelAcceptedOffer] Reversing Stripe Connect transfer to ${driver.stripeAccountId}`,
+              );
+            }
+
+            const stripeRefund = await stripe.refunds.create(refundParams);
+            console.log(
+              `[cancelAcceptedOffer] Stripe refund created: ${stripeRefund.id}, Amount: ${stripeRefund.amount} cents`,
+            );
+
+            // Refund passenger wallet with full amount
+            passengerWallet.balance += refundAmount;
+            await passengerWallet.save();
+
+            // Create passenger refund transaction
+            await Transaction.create({
+              wallet_id: passengerWallet._id,
+              user_id: request.passenger._id,
+              type: "refund",
+              amount: refundAmount,
+              gross_amount: refundAmount,
+              fee_amount: 0,
+              fee_percentage: 0,
+              net_amount: refundAmount,
+              currency: "EUR",
+              status: "completed",
+              reference_type: "ride",
+              reference_id: request._id,
+              stripe_refund_id: stripeRefund.id,
+              description: `Card refund - driver cancelled offer`,
+              ride_details: {
+                ride_id: acceptedOffer.ride || request._id,
+                booking_id: request._id,
+                driver_id: driverId,
+                driver_name: `${driver?.first_name} ${driver?.last_name}`,
+                seats: request.seats_needed,
+                price_per_seat: acceptedOffer.price_per_seat,
+                route: `${request.location_city || "Origin"} → ${request.airport?.name || "Airport"}`,
+              },
+              processed_at: new Date(),
+            });
+
+            // Always keep driver wallet in sync with refund
+            driverWallet.balance = Math.max(
+              0,
+              driverWallet.balance - driverEarnings,
+            );
+            driverWallet.total_earned = Math.max(
+              0,
+              driverWallet.total_earned - driverEarnings,
+            );
+            await driverWallet.save();
+
+            await Transaction.create({
+              wallet_id: driverWallet._id,
+              user_id: driverId,
+              type: "refund_reversal",
+              amount: -driverEarnings,
+              gross_amount: refundAmount,
+              fee_amount: Math.round(refundAmount * (platformFeePercent / 100)),
+              fee_percentage: platformFeePercent,
+              net_amount: driverEarnings,
+              currency: "EUR",
+              status: "completed",
+              reference_type: "ride",
+              reference_id: request._id,
+              stripe_refund_id: stripeRefund.id,
+              description: `Earnings reversal from cancelled offer (card payment)`,
+              ride_details: {
+                ride_id: acceptedOffer.ride || request._id,
+                booking_id: request._id,
+                passenger_id: request.passenger._id,
+                passenger_name: `${passenger?.first_name} ${passenger?.last_name}`,
+                seats: request.seats_needed,
+                price_per_seat: acceptedOffer.price_per_seat,
+                route: `${request.location_city || "Origin"} → ${request.airport?.name || "Airport"}`,
+              },
+              processed_at: new Date(),
+            });
+
+            console.log(
+              `[cancelAcceptedOffer] Card refund: Deducted €${(driverEarnings / 100).toFixed(2)} from driver wallet`,
+            );
+          } catch (stripeError) {
+            console.error(
+              "[cancelAcceptedOffer] Stripe refund error:",
+              stripeError,
+            );
+            throw stripeError;
+          }
+        }
+
+        // ===== WALLET PAYMENT REFUND =====
+        if (acceptedOffer.payment_method === "wallet") {
+          console.log(
+            `[cancelAcceptedOffer] Processing WALLET refund for offer ${acceptedOffer._id}`,
+          );
+
+          // Refund passenger wallet with full amount
+          passengerWallet.balance += refundAmount;
+          await passengerWallet.save();
+
+          // Create passenger refund transaction
+          await Transaction.create({
+            wallet_id: passengerWallet._id,
+            user_id: request.passenger._id,
+            type: "refund",
+            amount: refundAmount,
+            gross_amount: refundAmount,
+            fee_amount: 0,
+            fee_percentage: 0,
+            net_amount: refundAmount,
+            currency: "EUR",
+            status: "completed",
+            reference_type: "ride",
+            reference_id: request._id,
+            description: `Full wallet refund - driver cancelled offer`,
+            ride_details: {
+              ride_id: acceptedOffer.ride || request._id,
+              booking_id: request._id,
+              driver_id: driverId,
+              driver_name: `${driver?.first_name} ${driver?.last_name}`,
+              seats: request.seats_needed,
+              price_per_seat: acceptedOffer.price_per_seat,
+              route: `${request.location_city || "Origin"} → ${request.airport?.name || "Airport"}`,
+            },
+            processed_at: new Date(),
+          });
+
+          // Deduct driver earnings from wallet
+          driverWallet.balance = Math.max(
+            0,
+            driverWallet.balance - driverEarnings,
+          );
+          driverWallet.total_earned = Math.max(
+            0,
+            driverWallet.total_earned - driverEarnings,
+          );
+          await driverWallet.save();
+
+          // Create driver reversal transaction
+          await Transaction.create({
+            wallet_id: driverWallet._id,
+            user_id: driverId,
+            type: "refund_reversal",
+            amount: -driverEarnings,
+            gross_amount: refundAmount,
+            fee_amount: Math.round(refundAmount * (platformFeePercent / 100)),
+            fee_percentage: platformFeePercent,
+            net_amount: driverEarnings,
+            currency: "EUR",
+            status: "completed",
+            reference_type: "ride",
+            reference_id: request._id,
+            description: `Earnings reversal from cancelled offer (wallet payment)`,
+            ride_details: {
+              ride_id: acceptedOffer.ride || request._id,
+              booking_id: request._id,
+              passenger_id: request.passenger._id,
+              passenger_name: `${passenger?.first_name} ${passenger?.last_name}`,
+              seats: request.seats_needed,
+              price_per_seat: acceptedOffer.price_per_seat,
+              route: `${request.location_city || "Origin"} → ${request.airport?.name || "Airport"}`,
+            },
+            processed_at: new Date(),
+          });
+
+          console.log(
+            `[cancelAcceptedOffer] Wallet refund: €${(refundAmount / 100).toFixed(2)} refunded to passenger, €${(driverEarnings / 100).toFixed(2)} deducted from driver wallet`,
+          );
+        }
+      } catch (refundError) {
+        console.error("[cancelAcceptedOffer] Refund error:", refundError);
+        // Don't fail the entire operation if refund fails, but log it
+      }
+    }
+
     // Mark the request as no longer accepted
     request.status = "pending";
     request.matched_driver = null;
     request.matched_ride = null;
-    
+
     // Mark the offer as rejected (so driver can't accept again)
     acceptedOffer.status = "rejected";
-    
+
     await request.save();
 
     // Notify passenger that the driver cancelled
     try {
-      const driver = await User.findById(driverId).select("first_name last_name");
+      const driver = await User.findById(driverId).select(
+        "first_name last_name",
+      );
       await NotificationService.notifyOfferCancelled(request.passenger._id, {
         request_id: request._id.toString(),
         driver_name: `${driver?.first_name} ${driver?.last_name}`,
@@ -1372,12 +1597,17 @@ exports.cancelAcceptedOffer = async (req, res, next) => {
       });
       console.log("[cancelAcceptedOffer] Notification sent to passenger");
     } catch (notifError) {
-      console.error("[cancelAcceptedOffer] Failed to send notification:", notifError);
+      console.error(
+        "[cancelAcceptedOffer] Failed to send notification:",
+        notifError,
+      );
       // Don't fail if notification fails
     }
 
     // Invalidate caches
-    const userRequestKeys = await safeKeys(`user_requests:${request.passenger._id}:*`);
+    const userRequestKeys = await safeKeys(
+      `user_requests:${request.passenger._id}:*`,
+    );
     if (userRequestKeys.length > 0) {
       await safeDel(userRequestKeys);
     }
